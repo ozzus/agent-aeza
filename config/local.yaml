@@ -1,0 +1,3 @@
+env: "local"
+kafka:
+  addresess: 138.124.14.169:9092

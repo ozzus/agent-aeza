@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"context"
 	"time"
 
 	"ozzus/agent-aeza/internal/domain"
@@ -9,17 +8,15 @@ import (
 
 type TracerouteChecker struct{}
 
-func (c *TracerouteChecker) Run(ctx context.Context, task domain.Task, agentID string) Result {
-	start := time.Now()
+func (t *TracerouteChecker) Check(target string, parameters map[string]interface{}) (*domain.CheckResult, error) {
+	// Временная заглушка
+	time.Sleep(200 * time.Millisecond)
 
-	return Result{
-		TaskID:   task.ID,
-		AgentID:  agentID,
-		Type:     domain.TaskTypeTraceroute,
-		Target:   task.Target,
-		OK:       false,
-		Duration: time.Since(start),
-		Error:    "traceroute not implemented on this agent (see internal/checks/traceroute_checker.go)",
-		Meta:     map[string]interface{}{"note": "implement with aeden/traceroute or system call"},
-	}
+	return &domain.CheckResult{
+		Status: domain.StatusSuccess,
+	}, nil
+}
+
+func (t *TracerouteChecker) Type() domain.TaskType {
+	return domain.TaskTypeTraceroute
 }

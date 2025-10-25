@@ -8,38 +8,49 @@ import (
 )
 
 type Config struct {
-	Agent struct {
-		Name    string `mapstructure:"name"`
-		Country string `mapstructure:"country"`
-	} `mapstructure:"agent"`
+	Agent   AgentConfig   `mapstructure:"agent"`
+	Kafka   KafkaConfig   `mapstructure:"kafka"`
+	Server  ServerConfig  `mapstructure:"server"`
+	Backend BackendConfig `mapstructure:"backend"`
+	Checks  ChecksConfig  `mapstructure:"checks"`
+}
 
-	Kafka struct {
-		Brokers []string `mapstructure:"brokers"`
-		Topics  struct {
-			Tasks   string `mapstructure:"tasks"`
-			Results string `mapstructure:"results"`
-			Logs    string `mapstructure:"logs"`
-		} `mapstructure:"topics"`
-	} `mapstructure:"kafka"`
+type AgentConfig struct {
+	Name    string `mapstructure:"name"`
+	Country string `mapstructure:"country"`
+}
 
-	Server struct {
-		HealthPort string `mapstructure:"health_port"`
-	} `mapstructure:"server"`
+type KafkaConfig struct {
+	Brokers []string    `mapstructure:"brokers"`
+	Topics  KafkaTopics `mapstructure:"topics"`
+}
 
-	Backend struct {
-		URL               string `mapstructure:"url"`
-		RegistrationToken string `mapstructure:"registration_token"`
-	} `mapstructure:"backend"`
+type KafkaTopics struct {
+	Tasks   string `mapstructure:"tasks"`
+	Results string `mapstructure:"results"`
+	Logs    string `mapstructure:"logs"`
+}
 
-	Checks struct {
-		HTTPTimeout int `mapstructure:"http_timeout"`
-		PingTimeout int `mapstructure:"ping_timeout"`
-		TCPTimeout  int `mapstructure:"tcp_timeout"`
-		DNSTimeout  int `mapstructure:"dns_timeout"`
-	} `mapstructure:"checks"`
+type ServerConfig struct {
+	HealthPort string `mapstructure:"health_port"`
+}
+
+type BackendConfig struct {
+	URL               string `mapstructure:"url"`
+	RegistrationToken string `mapstructure:"registration_token"`
+}
+
+type ChecksConfig struct {
+	HTTPTimeout int `mapstructure:"http_timeout"`
+	PingTimeout int `mapstructure:"ping_timeout"`
+	TCPTimeout  int `mapstructure:"tcp_timeout"`
+	DNSTimeout  int `mapstructure:"dns_timeout"`
 }
 
 func Load() (*Config, error) {
+
+	setDefaults()
+
 	viper.SetConfigName("local")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("./config")
@@ -47,7 +58,9 @@ func Load() (*Config, error) {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
 	}
 
 	var cfg Config
@@ -56,6 +69,27 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func setDefaults() {
+	// Agent defaults
+	viper.SetDefault("agent.name", "monitoring-agent-01")
+	viper.SetDefault("agent.country", "RU")
+
+	// Kafka defaults
+	viper.SetDefault("kafka.brokers", []string{"localhost:9092"})
+	viper.SetDefault("kafka.topics.tasks", "agent-tasks")
+	viper.SetDefault("kafka.topics.results", "check-results")
+	viper.SetDefault("kafka.topics.logs", "agent-logs")
+
+	// Server defaults
+	viper.SetDefault("server.health_port", "8081")
+
+	// Checks defaults
+	viper.SetDefault("checks.http_timeout", 10)
+	viper.SetDefault("checks.ping_timeout", 5)
+	viper.SetDefault("checks.tcp_timeout", 5)
+	viper.SetDefault("checks.dns_timeout", 5)
 }
 
 func (c *Config) GetHTTPTimeout() time.Duration {
