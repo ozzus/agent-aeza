@@ -102,7 +102,6 @@ func (s *AgentService) processTasks(ctx context.Context) error {
 	var processedCount, skippedCount int
 
 	for _, task := range tasks {
-
 		processed, err := s.tryProcessTask(ctx, task)
 		if err != nil {
 			s.logError("Task processing failed", map[string]interface{}{
@@ -112,10 +111,18 @@ func (s *AgentService) processTasks(ctx context.Context) error {
 		}
 
 		if processed {
+			if err := s.taskRepo.AckTask(ctx, task.ID); err != nil {
+				s.logError("Failed to ack task", map[string]interface{}{
+					"task_id": task.ID,
+					"error":   err.Error(),
+				})
+			}
 			processedCount++
-		} else {
-			skippedCount++
+			continue
 		}
+
+		s.taskRepo.NackTask(task.ID)
+		skippedCount++
 	}
 
 	s.logInfo("Tasks processing summary", map[string]interface{}{
@@ -146,7 +153,20 @@ func (s *AgentService) tryProcessTask(ctx context.Context, task domain.Task) (bo
 			Message:   fmt.Sprintf("No checker available for task type: %s", task.Type),
 			Timestamp: time.Now(),
 		})
-		return false, nil
+
+		failure := domain.CheckResult{
+			TaskID:    task.ID,
+			AgentID:   s.agentID,
+			Status:    domain.StatusFailed,
+			Error:     fmt.Sprintf("no checker available for task type: %s", task.Type),
+			Timestamp: time.Now(),
+		}
+
+		if err := s.resultRepo.SendResult(ctx, failure); err != nil {
+			return false, fmt.Errorf("failed to send failure result: %w", err)
+		}
+
+		return true, nil
 	}
 
 	startTime := time.Now()
@@ -161,7 +181,21 @@ func (s *AgentService) tryProcessTask(ctx context.Context, task domain.Task) (bo
 			Message:   fmt.Sprintf("Checker execution failed: %v", err),
 			Timestamp: time.Now(),
 		})
-		return false, err
+
+		failure := domain.CheckResult{
+			TaskID:    task.ID,
+			AgentID:   s.agentID,
+			Status:    domain.StatusFailed,
+			Duration:  duration.Milliseconds(),
+			Error:     err.Error(),
+			Timestamp: time.Now(),
+		}
+
+		if sendErr := s.resultRepo.SendResult(ctx, failure); sendErr != nil {
+			return false, fmt.Errorf("failed to send failure result: %w", sendErr)
+		}
+
+		return true, err
 	}
 
 	result.TaskID = task.ID

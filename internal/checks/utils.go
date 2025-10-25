@@ -7,6 +7,38 @@ import (
 	"time"
 )
 
+type baseMetadata struct {
+	location string
+	country  string
+}
+
+func newBaseMetadata(location, country string) baseMetadata {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		location = "Unknown"
+	}
+
+	country = strings.ToLower(strings.TrimSpace(country))
+
+	return baseMetadata{location: location, country: country}
+}
+
+func (b baseMetadata) locationValue(params map[string]interface{}) string {
+	location := stringParam(params, "location", b.location)
+	if location == "" {
+		return "Unknown"
+	}
+	return location
+}
+
+func (b baseMetadata) countryValue(params map[string]interface{}) string {
+	country := lowerStringParam(params, "country", b.country)
+	if country == "" {
+		return b.country
+	}
+	return country
+}
+
 func stringParam(params map[string]interface{}, key, fallback string) string {
 	if params == nil {
 		return fallback
