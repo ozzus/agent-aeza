@@ -9,11 +9,23 @@ import (
 type TCPChecker struct{}
 
 func (t *TCPChecker) Check(target string, parameters map[string]interface{}) (*domain.CheckResult, error) {
-	// Временная заглушка
+	start := time.Now()
 	time.Sleep(80 * time.Millisecond)
+	duration := time.Since(start)
+
+	tcpPayload := []map[string]interface{}{
+		{
+			"location":    stringParam(parameters, "location", "Unknown"),
+			"country":     lowerStringParam(parameters, "country", ""),
+			"connectTime": formatSeconds(duration),
+			"status":      stringParam(parameters, "status", "Connected"),
+			"ip":          stringParam(parameters, "ip", target),
+		},
+	}
 
 	return &domain.CheckResult{
-		Status: domain.StatusSuccess,
+		Status:  domain.StatusSuccess,
+		Payload: map[string]interface{}{"tcp": tcpPayload},
 	}, nil
 }
 

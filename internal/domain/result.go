@@ -17,4 +17,5 @@ type CheckResult struct {
 	Duration  int64       `json:"duration"`
 	Error     string      `json:"error"`
 	Timestamp time.Time   `json:"timestamp"`
+	Payload   interface{} `json:"payload,omitempty"`
 }

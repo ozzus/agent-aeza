@@ -24,7 +24,7 @@ func NewHealthController(agentService *service.AgentService, agentID string) *He
 
 // Health handler для проверки работоспособности агента
 func (h *HealthController) Health(c *gin.Context) {
-	// Проверяем здоровье сервиса
+
 	if err := h.agentService.HealthCheck(c.Request.Context()); err != nil {
 		response := domain.HealthResponse{
 			Status:    "unhealthy",
@@ -36,7 +36,6 @@ func (h *HealthController) Health(c *gin.Context) {
 		return
 	}
 
-	// Сервис здоров
 	response := domain.HealthResponse{
 		Status:    "healthy",
 		Timestamp: time.Now(),
@@ -80,7 +79,7 @@ func (h *HealthController) Info(c *gin.Context) {
 	info := gin.H{
 		"agent_id":  h.agentID,
 		"status":    status,
-		"version":   "1.0.0", // Можно вынести в конфиг
+		"version":   "1.0.0",
 		"timestamp": time.Now(),
 		"components": []string{
 			"task_processor",

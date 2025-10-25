@@ -76,7 +76,7 @@ func Load() (*Config, error) {
 }
 
 func setDefaults() {
-	// Agent defaults
+
 	viper.SetDefault("env", "local")
 	viper.SetDefault("agent.name", "monitoring-agent-01")
 	viper.SetDefault("agent.country", "RU")
