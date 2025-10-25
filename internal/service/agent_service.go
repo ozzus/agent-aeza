@@ -40,7 +40,7 @@ func NewAgentService(
 	return &AgentService{
 		taskRepo:     taskRepo,
 		resultRepo:   resultRepo,
-		checkers:     make(map[domain.TaskType]Checker), // ПУСТОЙ массив!
+		checkers:     make(map[domain.TaskType]Checker),
 		agentID:      config.AgentID,
 		pollInterval: config.PollInterval,
 		isRunning:    false,
@@ -61,7 +61,7 @@ func (s *AgentService) Start(ctx context.Context) error {
 	s.logInfo("Agent service started", map[string]interface{}{
 		"agent_id":      s.agentID,
 		"poll_interval": s.pollInterval,
-		"checkers":      len(s.checkers), // Покажет 0 - это ЧЕСТНО
+		"checkers":      len(s.checkers),
 	})
 
 	ticker := time.NewTicker(s.pollInterval)
@@ -84,6 +84,8 @@ func (s *AgentService) Start(ctx context.Context) error {
 }
 
 func (s *AgentService) processTasks(ctx context.Context) error {
+	s.logInfo("Fetching tasks from repository", nil)
+
 	tasks, err := s.taskRepo.FetchTasks(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to fetch tasks: %w", err)
@@ -218,6 +220,6 @@ func (s *AgentService) GetStatus() map[string]interface{} {
 		"is_running":    s.isRunning,
 		"poll_interval": s.pollInterval.String(),
 		"checkers":      len(s.checkers),
-		"status":        "RUNNING_NO_CHECKERS", // Явно указываем статус
+		"status":        "RUNNING_NO_CHECKERS",
 	}
 }

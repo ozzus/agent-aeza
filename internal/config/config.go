@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -19,6 +20,7 @@ type Config struct {
 type AgentConfig struct {
 	Name    string `mapstructure:"name"`
 	Country string `mapstructure:"country"`
+	Token   string `mapstructure:"token"`
 }
 
 type KafkaConfig struct {
@@ -51,6 +53,9 @@ func Load() (*Config, error) {
 
 	setDefaults()
 
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
 	viper.SetConfigName("local")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("./config")
@@ -70,15 +75,12 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-func (c *Config) GetRegistrationToken() string {
-	return viper.GetString("REGISTRATION_TOKEN")
-}
-
 func setDefaults() {
 	// Agent defaults
 	viper.SetDefault("env", "local")
 	viper.SetDefault("agent.name", "monitoring-agent-01")
 	viper.SetDefault("agent.country", "RU")
+	viper.SetDefault("agent.token", "")
 
 	// Kafka defaults
 	viper.SetDefault("kafka.brokers", []string{"localhost:9092"})

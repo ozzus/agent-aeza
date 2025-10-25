@@ -30,11 +30,15 @@ func (r *KafkaTaskRepository) FetchTasks(ctx context.Context) ([]domain.Task, er
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	fmt.Println("FetchTasks called, waiting for messages")
+
 	for {
 		var task domain.Task
 		_, err := r.consumer.ReadEvent(timeoutCtx, &task)
 		if err != nil {
 			if err == context.DeadlineExceeded {
+
+				fmt.Println("FetchTasks: context deadline exceeded, returning", len(tasks), "tasks")
 				break
 			}
 			return nil, fmt.Errorf("failed to read event: %w", err)

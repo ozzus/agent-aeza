@@ -3,6 +3,7 @@ env: "local"
 agent:
   name: "ru-01-test"
   country: "RU"
+  token: "${AGENT_TOKEN}"
 
 kafka:
   brokers:
@@ -17,7 +18,6 @@ server:
 
 backend:
   url: "138.124.14.169:8080"
-  registration_token: "${REGISTRATION_TOKEN}"
 
 checks:
   http_timeout: 10

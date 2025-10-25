@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ozzus/agent-aeza/internal/api/http"
+	"ozzus/agent-aeza/internal/backend"
 	"ozzus/agent-aeza/internal/checks"
 	"ozzus/agent-aeza/internal/config"
 	"ozzus/agent-aeza/internal/domain"
@@ -41,7 +42,14 @@ func main() {
 		"agent", cfg.Agent.Name,
 	)
 
+	backendClient, err := backend.NewClient(cfg.Backend.URL, cfg.Agent.Name, cfg.Agent.Token)
+	if err != nil {
+		log.Error("failed to initialize backend client", "error", err)
+		os.Exit(1)
+	}
+
 	log.Info("initializing Kafka components")
+
 	taskConsumer := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.Topics.Tasks, cfg.Agent.Name)
 	defer taskConsumer.Close()
 
@@ -76,6 +84,8 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	startHeartbeat(ctx, backendClient, log, heartbeatInterval)
 
 	// Запускаем агент
 	go func() {
@@ -114,9 +124,10 @@ func main() {
 }
 
 const (
-	envLocal = "local"
-	envDev   = "dev"
-	envProd  = "prod"
+	envLocal          = "local"
+	envDev            = "dev"
+	envProd           = "prod"
+	heartbeatInterval = 30 * time.Second
 )
 
 func setupLogger(env string) *slog.Logger {
@@ -150,4 +161,39 @@ func setupPrettySlog() *slog.Logger {
 	handler := opts.NewPrettyHandler(os.Stdout)
 
 	return slog.New(handler)
+}
+
+func startHeartbeat(ctx context.Context, client *backend.Client, log *slog.Logger, interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+
+	send := func() {
+		hbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		if err := client.Heartbeat(hbCtx); err != nil {
+			log.Error("heartbeat failed", "error", err)
+			return
+		}
+
+		log.Debug("heartbeat sent")
+	}
+
+	go func() {
+		send()
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				send()
+			case <-ctx.Done():
+				log.Debug("heartbeat loop stopped")
+				return
+			}
+		}
+	}()
 }
