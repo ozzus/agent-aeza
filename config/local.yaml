@@ -1,3 +1,26 @@
 env: "local"
+
+agent:
+  name: "ru-01-test"
+  country: "RU"
+
 kafka:
-  addresess: 138.124.14.169:9092
+  brokers:
+    - "138.124.14.169:9092"
+  topics:
+    tasks: "agent-tasks"
+    results: "check-results" 
+    logs: "agent-logs"
+
+server:
+  health_port: "8081"
+
+backend:
+  url: "138.124.14.169:8080"
+  registration_token: "${REGISTRATION_TOKEN}"
+
+checks:
+  http_timeout: 10
+  ping_timeout: 5
+  tcp_timeout: 5
+  dns_timeout: 5

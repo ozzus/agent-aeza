@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	Env     string        `mapstructure:"env"`
 	Agent   AgentConfig   `mapstructure:"agent"`
 	Kafka   KafkaConfig   `mapstructure:"kafka"`
 	Server  ServerConfig  `mapstructure:"server"`
@@ -36,8 +37,7 @@ type ServerConfig struct {
 }
 
 type BackendConfig struct {
-	URL               string `mapstructure:"url"`
-	RegistrationToken string `mapstructure:"registration_token"`
+	URL string `mapstructure:"url"`
 }
 
 type ChecksConfig struct {
@@ -55,7 +55,6 @@ func Load() (*Config, error) {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("./config")
 	viper.AddConfigPath(".")
-	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -71,8 +70,13 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
+func (c *Config) GetRegistrationToken() string {
+	return viper.GetString("REGISTRATION_TOKEN")
+}
+
 func setDefaults() {
 	// Agent defaults
+	viper.SetDefault("env", "local")
 	viper.SetDefault("agent.name", "monitoring-agent-01")
 	viper.SetDefault("agent.country", "RU")
 
