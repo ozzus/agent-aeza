@@ -72,11 +72,14 @@ func main() {
 	)
 
 	log.Debug("initializing checkers")
-	agentService.RegisterChecker(domain.TaskTypeHTTP, &checks.HTTPChecker{})
-	agentService.RegisterChecker(domain.TaskTypePing, &checks.PingChecker{})
-	agentService.RegisterChecker(domain.TaskTypeTCP, &checks.TCPChecker{})
-	agentService.RegisterChecker(domain.TaskTypeTraceroute, &checks.TracerouteChecker{})
-	agentService.RegisterChecker(domain.TaskTypeDNS, &checks.DNSChecker{})
+	location := cfg.Agent.Name
+	country := cfg.Agent.Country
+
+	agentService.RegisterChecker(domain.TaskTypeHTTP, checks.NewHTTPChecker(cfg.GetHTTPTimeout(), location, country))
+	agentService.RegisterChecker(domain.TaskTypePing, checks.NewPingChecker(cfg.GetPingTimeout(), 4, location, country))
+	agentService.RegisterChecker(domain.TaskTypeTCP, checks.NewTCPChecker(cfg.GetTCPTimeout(), location, country))
+	agentService.RegisterChecker(domain.TaskTypeTraceroute, checks.NewTracerouteChecker(30, cfg.GetPingTimeout(), location, country))
+	agentService.RegisterChecker(domain.TaskTypeDNS, checks.NewDNSChecker(cfg.GetDNSTimeout(), location, country))
 
 	healthController := http.NewHealthController(agentService, cfg.Agent.Name)
 

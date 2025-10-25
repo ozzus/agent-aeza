@@ -36,6 +36,10 @@ func (c *Consumer) ReadEvent(ctx context.Context, v interface{}) (kafka.Message,
 	return msg, nil
 }
 
+func (c *Consumer) CommitMessage(ctx context.Context, msg kafka.Message) error {
+	return c.reader.CommitMessages(ctx, msg)
+}
+
 func (c *Consumer) ReadRawMessage(ctx context.Context) (kafka.Message, error) {
 	return c.reader.FetchMessage(ctx)
 }
