@@ -9,7 +9,9 @@ import (
 
 	"ozzus/agent-aeza/internal/domain"
 
-	"ozzus/agent-aeza/internal/repository/kafka"
+	kafkago "github.com/segmentio/kafka-go" // <-- alias the client lib
+
+	repokafka "ozzus/agent-aeza/internal/repository/kafka" // <-- alias your wrapper
 )
 
 type TaskRepository interface {
@@ -19,16 +21,16 @@ type TaskRepository interface {
 }
 
 type KafkaTaskRepository struct {
-	consumer *kafka.Consumer
+	consumer *repokafka.Consumer
 
 	mu       sync.Mutex
-	messages map[string]kafka.Message
+	messages map[string]kafkago.Message
 }
 
-func NewKafkaTaskRepository(consumer *kafka.Consumer) TaskRepository {
+func NewKafkaTaskRepository(consumer *repokafka.Consumer) TaskRepository {
 	return &KafkaTaskRepository{
 		consumer: consumer,
-		messages: make(map[string]kafka.Message),
+		messages: make(map[string]kafkago.Message),
 	}
 }
 

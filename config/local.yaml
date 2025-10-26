@@ -1,8 +1,8 @@
 env: "local"
 
 agent:
-  name: "ru-01-test"
-  country: "RU"
+  name: ${AGENT_NAME}
+  country: ${AGENT_COUNTRY}
   token: "${AGENT_TOKEN}"
 
 kafka:
