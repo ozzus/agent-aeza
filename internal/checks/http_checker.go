@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"time"
@@ -15,8 +16,8 @@ import (
 
 type HTTPChecker struct {
 	baseMetadata
-	timeout time.Duration
-	client  *http.Client
+	timeout   time.Duration
+	transport *http.Transport
 }
 
 func NewHTTPChecker(timeout time.Duration, location, country string) *HTTPChecker {
@@ -24,12 +25,18 @@ func NewHTTPChecker(timeout time.Duration, location, country string) *HTTPChecke
 		timeout = 10 * time.Second
 	}
 
-	client := &http.Client{Timeout: timeout}
+	transport := http.DefaultTransport
+	clonedTransport, ok := transport.(*http.Transport)
+	if ok {
+		clonedTransport = clonedTransport.Clone()
+	} else {
+		clonedTransport = &http.Transport{}
+	}
 
 	return &HTTPChecker{
 		baseMetadata: newBaseMetadata(location, country),
 		timeout:      timeout,
-		client:       client,
+		transport:    clonedTransport,
 	}
 }
 
@@ -55,6 +62,39 @@ func (h *HTTPChecker) Check(target string, parameters map[string]interface{}) (*
 		return h.failureResult(resolvedURL, time.Duration(0), err, parameters), nil
 	}
 
+	transport := h.transport.Clone()
+	defer transport.CloseIdleConnections()
+	dialer := &net.Dialer{Timeout: timeout}
+	var dialIP string
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dialer.DialContext(ctx, network, addr)
+		if err == nil {
+			if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+				dialIP = tcpAddr.IP.String()
+			} else {
+				dialIP = conn.RemoteAddr().String()
+			}
+		}
+		return conn, err
+	}
+	transport.TLSHandshakeTimeout = timeout
+
+	client := &http.Client{Transport: transport}
+
+	trace := &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Conn == nil {
+				return
+			}
+			if tcpAddr, ok := info.Conn.RemoteAddr().(*net.TCPAddr); ok {
+				dialIP = tcpAddr.IP.String()
+			} else {
+				dialIP = info.Conn.RemoteAddr().String()
+			}
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
 	if headers, ok := parameters["headers"].(map[string]interface{}); ok {
 		for key, value := range headers {
 			req.Header.Set(key, fmt.Sprintf("%v", value))
@@ -62,7 +102,7 @@ func (h *HTTPChecker) Check(target string, parameters map[string]interface{}) (*
 	}
 
 	start := time.Now()
-	resp, err := h.client.Do(req)
+	resp, err := client.Do(req)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -80,6 +120,11 @@ func (h *HTTPChecker) Check(target string, parameters map[string]interface{}) (*
 		resultText = "FAILED"
 	}
 
+	ip := dialIP
+	if ip == "" {
+		ip = h.lookupIP(resolvedURL)
+	}
+
 	payload := map[string]interface{}{
 		"http": []map[string]interface{}{
 			{
@@ -87,7 +132,7 @@ func (h *HTTPChecker) Check(target string, parameters map[string]interface{}) (*
 				"country":  h.countryValue(parameters),
 				"time":     formatSeconds(duration),
 				"status":   resp.StatusCode,
-				"ip":       h.lookupIP(resolvedURL),
+				"ip":       ip,
 				"result":   resultText,
 			},
 		},
@@ -130,7 +175,7 @@ func (h *HTTPChecker) failureResult(target string, duration time.Duration, err e
 				"country":  h.countryValue(parameters),
 				"time":     formatSeconds(duration),
 				"status":   0,
-				"ip":       target,
+				"ip":       h.hostForPayload(target),
 				"result":   "FAILED",
 			},
 		},
@@ -166,4 +211,24 @@ func (h *HTTPChecker) prepareURL(target string) (string, error) {
 
 func (h *HTTPChecker) Type() domain.TaskType {
 	return domain.TaskTypeHTTP
+}
+
+func (h *HTTPChecker) hostForPayload(target string) string {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+
+	host := parsed.Host
+	if host == "" {
+		host = target
+	}
+
+	if strings.Contains(host, ":") {
+		if h, _, errSplit := net.SplitHostPort(host); errSplit == nil {
+			host = h
+		}
+	}
+
+	return host
 }

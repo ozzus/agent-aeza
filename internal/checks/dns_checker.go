@@ -28,8 +28,9 @@ func NewDNSChecker(timeout time.Duration, location, country string) *DNSChecker 
 }
 
 func (d *DNSChecker) Check(target string, parameters map[string]interface{}) (*domain.CheckResult, error) {
-	if target == "" {
-		return &domain.CheckResult{Status: domain.StatusFailed, Error: "empty target"}, nil
+	host, err := normalizeHostname(target)
+	if err != nil {
+		return &domain.CheckResult{Status: domain.StatusFailed, Error: err.Error()}, nil
 	}
 
 	recordType := strings.ToUpper(stringParam(parameters, "record_type", string(domain.DNSRecordA)))
@@ -43,7 +44,7 @@ func (d *DNSChecker) Check(target string, parameters map[string]interface{}) (*d
 
 	resolver := net.Resolver{}
 
-	records, err := d.lookupRecords(ctx, resolver, target, recordType)
+	records, err := d.lookupRecords(ctx, resolver, host, recordType)
 	if err != nil {
 		return &domain.CheckResult{Status: domain.StatusFailed, Error: err.Error()}, nil
 	}

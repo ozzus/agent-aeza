@@ -41,8 +41,9 @@ func NewPingChecker(timeout time.Duration, count int, location, country string) 
 }
 
 func (p *PingChecker) Check(target string, parameters map[string]interface{}) (*domain.CheckResult, error) {
-	if target == "" {
-		return &domain.CheckResult{Status: domain.StatusFailed, Error: "empty target"}, nil
+	host, err := normalizeHostname(target)
+	if err != nil {
+		return &domain.CheckResult{Status: domain.StatusFailed, Error: err.Error()}, nil
 	}
 
 	count := intParam(parameters, "count", p.count)
@@ -58,7 +59,7 @@ func (p *PingChecker) Check(target string, parameters map[string]interface{}) (*
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
 	defer cancel()
 
-	args := []string{"-n", "-c", strconv.Itoa(count), "-w", fmt.Sprintf("%d", int(timeout.Seconds())), target}
+	args := []string{"-n", "-c", strconv.Itoa(count), "-w", fmt.Sprintf("%d", int(timeout.Seconds())), host}
 	cmd := exec.CommandContext(ctx, "ping", args...)
 
 	output, err := cmd.CombinedOutput()
@@ -70,7 +71,7 @@ func (p *PingChecker) Check(target string, parameters map[string]interface{}) (*
 
 	transmitted, received, loss := p.parseSummary(outputStr)
 	minRTT, avgRTT, maxRTT := p.parseRTT(outputStr)
-	ip := p.parseIP(outputStr, target)
+	ip := p.parseIP(outputStr, host)
 	lossText := fmt.Sprintf("%.0f%%", loss)
 
 	payload := map[string]interface{}{

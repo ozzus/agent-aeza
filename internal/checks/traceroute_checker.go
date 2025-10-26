@@ -41,8 +41,9 @@ func NewTracerouteChecker(maxHops int, timeout time.Duration, location, country 
 }
 
 func (t *TracerouteChecker) Check(target string, parameters map[string]interface{}) (*domain.CheckResult, error) {
-	if target == "" {
-		return &domain.CheckResult{Status: domain.StatusFailed, Error: "empty target"}, nil
+	host, err := normalizeHostname(target)
+	if err != nil {
+		return &domain.CheckResult{Status: domain.StatusFailed, Error: err.Error()}, nil
 	}
 
 	maxHops := intParam(parameters, "max_hops", t.maxHops)
@@ -60,7 +61,7 @@ func (t *TracerouteChecker) Check(target string, parameters map[string]interface
 	var errText string
 
 	for ttl := 1; ttl <= maxHops; ttl++ {
-		hop, reached, hopErr := t.runHop(target, ttl, hopTimeout)
+		hop, reached, hopErr := t.runHop(host, ttl, hopTimeout)
 		hop["hop"] = ttl
 		hops = append(hops, hop)
 

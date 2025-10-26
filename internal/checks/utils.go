@@ -2,6 +2,8 @@ package checks
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -161,4 +163,42 @@ func formatTTL(d time.Duration) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func normalizeHostname(target string) (string, error) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty target")
+	}
+
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil {
+			return "", err
+		}
+		host := parsed.Hostname()
+		if host == "" {
+			return "", fmt.Errorf("invalid host: %s", target)
+		}
+		return host, nil
+	}
+
+	if strings.ContainsAny(trimmed, "/? ") {
+		if idx := strings.IndexAny(trimmed, "/? "); idx >= 0 {
+			trimmed = trimmed[:idx]
+		}
+	}
+
+	if strings.Contains(trimmed, ":") {
+		if host, _, err := net.SplitHostPort(trimmed); err == nil {
+			trimmed = host
+		}
+	}
+
+	trimmed = strings.Trim(trimmed, "[]")
+	if trimmed == "" {
+		return "", fmt.Errorf("invalid host: %s", target)
+	}
+
+	return trimmed, nil
 }
