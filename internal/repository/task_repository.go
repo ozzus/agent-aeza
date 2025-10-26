@@ -72,6 +72,8 @@ func (r *KafkaTaskRepository) FetchTasks(ctx context.Context) ([]domain.Task, er
 		tasks = append(tasks, task)
 	}
 
+	fmt.Printf("INFO [TaskRepository]: fetched %d tasks from topic %s\n", len(tasks), r.consumer.Topic())
+
 	return tasks, nil
 }
 

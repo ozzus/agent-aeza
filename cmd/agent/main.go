@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
+	nethttp "net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
-	"ozzus/agent-aeza/internal/api/http"
+	apihttp "ozzus/agent-aeza/internal/api/http"
 	"ozzus/agent-aeza/internal/backend"
 	"ozzus/agent-aeza/internal/checks"
 	"ozzus/agent-aeza/internal/config"
@@ -81,17 +84,21 @@ func main() {
 	agentService.RegisterChecker(domain.TaskTypeTraceroute, checks.NewTracerouteChecker(30, cfg.GetPingTimeout(), location, country))
 	agentService.RegisterChecker(domain.TaskTypeDNS, checks.NewDNSChecker(cfg.GetDNSTimeout(), location, country))
 
-	healthController := http.NewHealthController(agentService, cfg.Agent.Name)
+	healthController := apihttp.NewHealthController(agentService, cfg.Agent.Name)
 
-	router := http.NewRouter(healthController)
+	router := apihttp.NewRouter(healthController)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	startHeartbeat(ctx, backendClient, log, heartbeatInterval)
+	var wg sync.WaitGroup
+
+	startHeartbeat(ctx, &wg, backendClient, log, heartbeatInterval)
 
 	// Запускаем агент
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		log.Info("starting agent service",
 			"backend", cfg.Backend.URL,
 			"kafka_brokers", cfg.Kafka.Brokers,
@@ -103,11 +110,18 @@ func main() {
 	}()
 
 	// Запускаем HTTP сервер
+	httpServer := &nethttp.Server{
+		Addr:    ":" + cfg.Server.HealthPort,
+		Handler: router,
+	}
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		log.Info("starting health server", "port", cfg.Server.HealthPort)
-		if err := router.Run(":" + cfg.Server.HealthPort); err != nil {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, nethttp.ErrServerClosed) {
 			log.Error("HTTP server failed", "error", err)
-			os.Exit(1)
+			cancel()
 		}
 	}()
 
@@ -122,7 +136,14 @@ func main() {
 	<-quit
 	log.Info("shutting down agent...")
 	cancel()
-	time.Sleep(1 * time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Error("HTTP server shutdown failed", "error", err)
+	}
+
+	wg.Wait()
 	log.Info("agent stopped gracefully")
 }
 
@@ -166,7 +187,7 @@ func setupPrettySlog() *slog.Logger {
 	return slog.New(handler)
 }
 
-func startHeartbeat(ctx context.Context, client *backend.Client, log *slog.Logger, interval time.Duration) {
+func startHeartbeat(ctx context.Context, wg *sync.WaitGroup, client *backend.Client, log *slog.Logger, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
@@ -176,14 +197,22 @@ func startHeartbeat(ctx context.Context, client *backend.Client, log *slog.Logge
 		defer cancel()
 
 		if err := client.Heartbeat(hbCtx); err != nil {
-			log.Error("heartbeat failed", "error", err)
+			log.Error("heartbeat failed", "error", err.Error())
 			return
 		}
 
 		log.Debug("heartbeat sent")
 	}
 
+	if wg != nil {
+		wg.Add(1)
+	}
+
 	go func() {
+		if wg != nil {
+			defer wg.Done()
+		}
+
 		send()
 
 		ticker := time.NewTicker(interval)

@@ -10,6 +10,7 @@ import (
 
 type Consumer struct {
 	reader *kafka.Reader
+	topic  string
 }
 
 func NewConsumer(brokers []string, topic, groupID string) *Consumer {
@@ -20,6 +21,7 @@ func NewConsumer(brokers []string, topic, groupID string) *Consumer {
 			GroupID: groupID,
 			MaxWait: 10 * time.Second,
 		}),
+		topic: topic,
 	}
 }
 
@@ -46,4 +48,8 @@ func (c *Consumer) ReadRawMessage(ctx context.Context) (kafka.Message, error) {
 
 func (c *Consumer) Close() error {
 	return c.reader.Close()
+}
+
+func (c *Consumer) Topic() string {
+	return c.topic
 }
