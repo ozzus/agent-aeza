@@ -83,7 +83,7 @@ func setDefaults() {
 	viper.SetDefault("agent.token", "")
 
 	// Kafka defaults
-	viper.SetDefault("kafka.brokers", []string{"localhost:9092"})
+	viper.SetDefault("kafka.brokers", []string{"91.107.126.43:9092"})
 	viper.SetDefault("kafka.topics.tasks", "agent-tasks")
 	viper.SetDefault("kafka.topics.results", "check-results")
 	viper.SetDefault("kafka.topics.logs", "agent-logs")

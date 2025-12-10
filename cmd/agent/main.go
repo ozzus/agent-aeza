@@ -52,10 +52,19 @@ func main() {
 	}
 
 	log.Info("initializing Kafka components")
-
 	taskConsumer := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.Topics.Tasks, cfg.Agent.Name)
-	defer taskConsumer.Close()
 
+	// Создаем контекст для проверки подключения
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer checkCancel()
+
+	// Проверяем подключение
+	if err := taskConsumer.CheckConnection(checkCtx); err != nil {
+		log.Error("failed to connect to Kafka", "error", err)
+		os.Exit(1)
+	}
+
+	defer taskConsumer.Close()
 	resultsProducer := kafka.NewProducer(cfg.Kafka.Brokers, cfg.Kafka.Topics.Results)
 	defer resultsProducer.Close()
 
