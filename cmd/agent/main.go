@@ -2,234 +2,207 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"log"
 	"log/slog"
-	nethttp "net/http"
 	"os"
 	"os/signal"
-	"sync"
+	"strings"
 	"syscall"
 	"time"
 
-	apihttp "ozzus/agent-aeza/internal/api/http"
-	"ozzus/agent-aeza/internal/backend"
-	"ozzus/agent-aeza/internal/checks"
-	"ozzus/agent-aeza/internal/config"
-	"ozzus/agent-aeza/internal/domain"
-	"ozzus/agent-aeza/internal/lib/logger/slogpretty"
-	"ozzus/agent-aeza/internal/repository"
-	"ozzus/agent-aeza/internal/repository/kafka"
-	"ozzus/agent-aeza/internal/service"
+	"github.com/segmentio/kafka-go"
 
-	"github.com/joho/godotenv"
+	"ozzus/agent-aeza/internal/checks"
+	"ozzus/agent-aeza/internal/domain"
 )
+
+type Checker interface {
+	Type() domain.TaskType
+	Check(target string, params map[string]interface{}) (*domain.CheckResult, error)
+}
 
 func main() {
+	log := setupLogger()
 
-	if err := godotenv.Load(".env"); err != nil {
-		log.Printf("Warning: .env file not found: %v", err)
-	}
+	// ---- конфиг через env, без всяких конфиг-пакетов ----
+	brokersEnv := getenvOr("KAFKA_BROKERS", "91.107.126.43:9092")
+	taskTopic := getenvOr("KAFKA_TASKS_TOPIC", "agent-tasks")
+	resultTopic := getenvOr("KAFKA_RESULTS_TOPIC", "check-results")
+	agentID := getenvOr("AGENT_ID", "agent-1")
+	location := getenvOr("AGENT_LOCATION", agentID)
+	country := getenvOr("AGENT_COUNTRY", "unknown")
 
-	// Загружаем конфигурацию
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
+	brokers := strings.Split(brokersEnv, ",")
 
-	// Настраиваем логгер
-	log := setupLogger(cfg.Env)
-
-	log.Info("starting application",
-		"env", cfg.Env,
-		"agent", cfg.Agent.Name,
+	log.Info("starting agent",
+		"brokers", brokers,
+		"taskTopic", taskTopic,
+		"resultTopic", resultTopic,
+		"agentID", agentID,
 	)
 
-	backendClient, err := backend.NewClient(cfg.Backend.URL, cfg.Agent.Name, cfg.Agent.Token)
-	if err != nil {
-		log.Error("failed to initialize backend client", "error", err)
-		os.Exit(1)
+	// ---- регистрируем чекеры ----
+	checkers := buildCheckers(location, country)
+	log.Info("checkers registered", "count", len(checkers))
+
+	// ---- Kafka consumer (ТВОЙ РАБОЧИЙ ВАРИАНТ) ----
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:  brokers,
+		Topic:    taskTopic,
+		GroupID:  agentID, // каждый агент — свой consumer group
+		MinBytes: 1,
+		MaxBytes: 10e6,
+	})
+	defer reader.Close()
+
+	// ---- Kafka producer для результатов ----
+	writer := &kafka.Writer{
+		Addr:     kafka.TCP(brokers...),
+		Topic:    resultTopic,
+		Balancer: &kafka.LeastBytes{},
 	}
+	defer writer.Close()
 
-	log.Info("initializing Kafka components")
-	taskConsumer, err := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.Topics.Tasks, cfg.Agent.Name)
-	if err != nil {
-		log.Error("failed to initialize Kafka consumer", "error", err)
-		os.Exit(1)
-	}
-	defer taskConsumer.Close()
-
-	defer taskConsumer.Close()
-	resultsProducer := kafka.NewProducer(cfg.Kafka.Brokers, cfg.Kafka.Topics.Results)
-	defer resultsProducer.Close()
-
-	logsProducer := kafka.NewProducer(cfg.Kafka.Brokers, cfg.Kafka.Topics.Logs)
-	defer logsProducer.Close()
-
-	taskRepo := repository.NewKafkaTaskRepository(taskConsumer)
-	resultRepo := repository.NewKafkaResultRepository(resultsProducer, logsProducer)
-
-	agentService := service.NewAgentService(
-		taskRepo,
-		resultRepo,
-		service.Config{
-			AgentID:      cfg.Agent.Name,
-			PollInterval: 30 * time.Second,
-		},
-	)
-
-	log.Debug("initializing checkers")
-	location := cfg.Agent.Name
-	country := cfg.Agent.Country
-
-	agentService.RegisterChecker(domain.TaskTypeHTTP, checks.NewHTTPChecker(cfg.GetHTTPTimeout(), location, country))
-	agentService.RegisterChecker(domain.TaskTypePing, checks.NewPingChecker(cfg.GetPingTimeout(), 4, location, country))
-	agentService.RegisterChecker(domain.TaskTypeTCP, checks.NewTCPChecker(cfg.GetTCPTimeout(), location, country))
-	agentService.RegisterChecker(domain.TaskTypeTraceroute, checks.NewTracerouteChecker(30, cfg.GetPingTimeout(), location, country))
-	agentService.RegisterChecker(domain.TaskTypeDNS, checks.NewDNSChecker(cfg.GetDNSTimeout(), location, country))
-
-	healthController := apihttp.NewHealthController(agentService, cfg.Agent.Name)
-
-	router := apihttp.NewRouter(healthController)
-
-	ctx, cancel := context.WithCancel(context.Background())
+	// ---- контекст с отменой по сигналу ----
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	log.Info("agent started, waiting for tasks...")
 
-	startHeartbeat(ctx, &wg, backendClient, log, heartbeatInterval)
+	for {
+		msg, err := reader.ReadMessage(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				log.Info("context cancelled, stopping consumer loop")
+				break
+			}
+			log.Error("failed to read message", "error", err)
+			continue
+		}
 
-	// Запускаем агент
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info("starting agent service",
-			"backend", cfg.Backend.URL,
-			"kafka_brokers", cfg.Kafka.Brokers,
+		var task domain.Task
+		if err := json.Unmarshal(msg.Value, &task); err != nil {
+			log.Error("failed to unmarshal task", "error", err, "raw", string(msg.Value))
+			continue
+		}
+
+		if task.ID == "" {
+			log.Warn("received task without ID, skipping")
+			continue
+		}
+
+		log.Info("received task",
+			"id", task.ID,
+			"type", task.Type,
+			"target", task.Target,
 		)
-		if err := agentService.Start(ctx); err != nil {
-			log.Error("agent service failed", "error", err)
-			os.Exit(1)
-		}
-	}()
 
-	// Запускаем HTTP сервер
-	httpServer := &nethttp.Server{
-		Addr:    ":" + cfg.Server.HealthPort,
-		Handler: router,
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info("starting health server", "port", cfg.Server.HealthPort)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, nethttp.ErrServerClosed) {
-			log.Error("HTTP server failed", "error", err)
-			cancel()
-		}
-	}()
-
-	quit := make(chan os.Signal, 1) // ← ОБЪЯВЛЯЕМ ПЕРЕМЕННУЮ quit
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	log.Info("application started and ready",
-		"health_port", cfg.Server.HealthPort,
-		"agent_id", cfg.Agent.Name,
-	)
-
-	<-quit
-	log.Info("shutting down agent...")
-	cancel()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Error("HTTP server shutdown failed", "error", err)
-	}
-
-	wg.Wait()
-	log.Info("agent stopped gracefully")
-}
-
-const (
-	envLocal          = "local"
-	envDev            = "dev"
-	envProd           = "prod"
-	heartbeatInterval = 30 * time.Second
-)
-
-func setupLogger(env string) *slog.Logger {
-	var log *slog.Logger
-
-	switch env {
-	case envLocal:
-		log = setupPrettySlog()
-	case envDev:
-		log = slog.New(
-			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		)
-	case envProd:
-		log = slog.New(
-			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		)
-	default:
-		log = setupPrettySlog()
-	}
-
-	return log
-}
-
-func setupPrettySlog() *slog.Logger {
-	opts := slogpretty.PrettyHandlerOptions{
-		SlogOpts: &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		},
-	}
-
-	handler := opts.NewPrettyHandler(os.Stdout)
-
-	return slog.New(handler)
-}
-
-func startHeartbeat(ctx context.Context, wg *sync.WaitGroup, client *backend.Client, log *slog.Logger, interval time.Duration) {
-	if interval <= 0 {
-		interval = 30 * time.Second
-	}
-
-	send := func() {
-		hbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		if err := client.Heartbeat(hbCtx); err != nil {
-			log.Error("heartbeat failed", "error", err.Error())
-			return
+		checker, ok := checkers[task.Type]
+		if !ok {
+			log.Error("no checker registered for task type", "type", task.Type)
+			// отправим сразу фейл, чтобы бэк не висел
+			res := domain.CheckResult{
+				TaskID:    task.ID,
+				AgentID:   agentID,
+				Status:    domain.StatusFailed,
+				Error:     "unsupported task type: " + string(task.Type),
+				Duration:  0,
+				Timestamp: time.Now().UTC(),
+				Payload:   nil,
+			}
+			if err := sendResult(ctx, writer, log, res); err != nil {
+				log.Error("failed to send error result", "error", err)
+			}
+			continue
 		}
 
-		log.Debug("heartbeat sent")
-	}
+		start := time.Now()
+		res, err := checker.Check(task.Target, task.Parameters)
+		duration := time.Since(start)
 
-	if wg != nil {
-		wg.Add(1)
-	}
-
-	go func() {
-		if wg != nil {
-			defer wg.Done()
+		if res == nil {
+			res = &domain.CheckResult{}
 		}
 
-		send()
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				send()
-			case <-ctx.Done():
-				log.Debug("heartbeat loop stopped")
-				return
+		// если чекер вернул ошибку — считаем это фейлом проверки
+		if err != nil {
+			log.Error("checker failed", "error", err, "task_id", task.ID)
+			res.Status = domain.StatusFailed
+			if res.Error == "" {
+				res.Error = err.Error()
 			}
 		}
-	}()
+
+		res.TaskID = task.ID
+		res.AgentID = agentID
+		res.Duration = duration.Milliseconds()
+		if res.Timestamp.IsZero() {
+			res.Timestamp = time.Now().UTC()
+		}
+
+		if err := sendResult(ctx, writer, log, *res); err != nil {
+			log.Error("failed to send result", "error", err, "task_id", task.ID)
+			continue
+		}
+
+		log.Info("task processed",
+			"id", task.ID,
+			"status", res.Status,
+			"duration_ms", res.Duration,
+		)
+	}
+
+	log.Info("agent stopped")
+}
+
+// ---------- helpers ----------
+
+func buildCheckers(location, country string) map[domain.TaskType]Checker {
+	checkers := []Checker{
+		checks.NewHTTPChecker(10*time.Second, location, country),
+		checks.NewPingChecker(5*time.Second, 4, location, country),
+		checks.NewTCPChecker(5*time.Second, location, country),
+		checks.NewTracerouteChecker(30, 3*time.Second, location, country),
+		checks.NewDNSChecker(5*time.Second, location, country),
+	}
+
+	m := make(map[domain.TaskType]Checker, len(checkers))
+	for _, c := range checkers {
+		m[c.Type()] = c
+	}
+	return m
+}
+
+func sendResult(ctx context.Context, w *kafka.Writer, log *slog.Logger, res domain.CheckResult) error {
+	data, err := json.Marshal(res)
+	if err != nil {
+		return err
+	}
+
+	msg := kafka.Message{
+		Key:   []byte(res.TaskID),
+		Value: data,
+		Time:  time.Now(),
+	}
+
+	if err := w.WriteMessages(ctx, msg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getenvOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func setupLogger() *slog.Logger {
+	return slog.New(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}),
+	)
 }

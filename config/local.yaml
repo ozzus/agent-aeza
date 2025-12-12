@@ -7,7 +7,7 @@ agent:
 
 kafka:
   brokers:
-    - "138.124.14.169:9092"
+    - "91.107.126.43:9092"
   topics:
     tasks: "agent-tasks"
     results: "check-results" 
@@ -17,7 +17,7 @@ server:
   health_port: "8081"
 
 backend:
-  url: "138.124.14.169:8080"
+  url: "0.0.0.0:8080"
 
 checks:
   http_timeout: 10

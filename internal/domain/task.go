@@ -27,7 +27,7 @@ const (
 )
 
 type Task struct {
-	ID          string                 `json:"id"`
+	ID          string                 `json:"task_id"`
 	Type        TaskType               `json:"type"`
 	Target      string                 `json:"target"`
 	Parameters  map[string]interface{} `json:"parameters"`

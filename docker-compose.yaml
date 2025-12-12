@@ -11,8 +11,8 @@ services:
       AGENT_TOKEN: ${AGENT_TOKEN}
       AGENT_NAME: ${AGENT_NAME}
       AGENT_COUNTRY: ${AGENT_COUNTRY}
-      BACKEND_URL: "http://138.124.14.169:8080"
-      KAFKA_BROKERS: "138.124.14.169:9092"
+      BACKEND_URL: "0.0.0.0:8080"
+      KAFKA_BROKERS: "91.107.126.43:9092"
       KAFKA_TOPICS_TASKS: "agent-tasks"
       KAFKA_TOPICS_RESULTS: "check-results"
       KAFKA_TOPICS_LOGS: "agent-logs"
@@ -23,4 +23,4 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - ./config:/app/config:ro 
+      - ./config:/app/config:ro
