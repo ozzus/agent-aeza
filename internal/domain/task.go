@@ -11,7 +11,7 @@ const (
 	TaskTypePing       TaskType = "ping"
 	TaskTypeTCP        TaskType = "tcp"
 	TaskTypeTraceroute TaskType = "traceroute"
-	TaskTypeDNS        TaskType = "dns"
+	TaskTypeDNS        TaskType = "dns_lookup"
 )
 
 //типы DNS записей
