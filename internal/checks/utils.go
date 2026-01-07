@@ -2,10 +2,44 @@ package checks
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 )
+
+type baseMetadata struct {
+	location string
+	country  string
+}
+
+func newBaseMetadata(location, country string) baseMetadata {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		location = "Unknown"
+	}
+
+	country = strings.ToLower(strings.TrimSpace(country))
+
+	return baseMetadata{location: location, country: country}
+}
+
+func (b baseMetadata) locationValue(params map[string]interface{}) string {
+	location := stringParam(params, "location", b.location)
+	if location == "" {
+		return "Unknown"
+	}
+	return location
+}
+
+func (b baseMetadata) countryValue(params map[string]interface{}) string {
+	country := lowerStringParam(params, "country", b.country)
+	if country == "" {
+		return b.country
+	}
+	return country
+}
 
 func stringParam(params map[string]interface{}, key, fallback string) string {
 	if params == nil {
@@ -129,4 +163,42 @@ func formatTTL(d time.Duration) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func normalizeHostname(target string) (string, error) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty target")
+	}
+
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil {
+			return "", err
+		}
+		host := parsed.Hostname()
+		if host == "" {
+			return "", fmt.Errorf("invalid host: %s", target)
+		}
+		return host, nil
+	}
+
+	if strings.ContainsAny(trimmed, "/? ") {
+		if idx := strings.IndexAny(trimmed, "/? "); idx >= 0 {
+			trimmed = trimmed[:idx]
+		}
+	}
+
+	if strings.Contains(trimmed, ":") {
+		if host, _, err := net.SplitHostPort(trimmed); err == nil {
+			trimmed = host
+		}
+	}
+
+	trimmed = strings.Trim(trimmed, "[]")
+	if trimmed == "" {
+		return "", fmt.Errorf("invalid host: %s", target)
+	}
+
+	return trimmed, nil
 }

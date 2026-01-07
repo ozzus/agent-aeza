@@ -10,6 +10,7 @@ import (
 
 type Producer struct {
 	writer *kafka.Writer
+	topic  string
 }
 
 func NewProducer(brokers []string, topic string) *Producer {
@@ -19,6 +20,7 @@ func NewProducer(brokers []string, topic string) *Producer {
 			Topic:    topic,
 			Balancer: &kafka.LeastBytes{},
 		},
+		topic: topic,
 	}
 }
 
@@ -36,4 +38,8 @@ func (p *Producer) PublishEvent(ctx context.Context, key string, event interface
 
 func (p *Producer) Close() error {
 	return p.writer.Close()
+}
+
+func (p *Producer) Topic() string {
+	return p.topic
 }

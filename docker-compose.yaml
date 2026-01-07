@@ -1,0 +1,26 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GO_VERSION: "1.25.3"
+    container_name: agent-aeza
+    restart: unless-stopped
+    environment:
+      AGENT_TOKEN: ${AGENT_TOKEN}
+      AGENT_NAME: ${AGENT_NAME}
+      AGENT_COUNTRY: ${AGENT_COUNTRY}
+      BACKEND_URL: "0.0.0.0:8080"
+      KAFKA_BROKERS: "91.107.126.43:9092"
+      KAFKA_TOPICS_TASKS: "agent-tasks"
+      KAFKA_TOPICS_RESULTS: "check-results"
+      KAFKA_TOPICS_LOGS: "agent-logs"
+      CHECKS_HTTP_TIMEOUT: "10"
+      CHECKS_PING_TIMEOUT: "5"
+      CHECKS_TCP_TIMEOUT: "5"
+      CHECKS_DNS_TIMEOUT: "5"
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./config:/app/config:ro
